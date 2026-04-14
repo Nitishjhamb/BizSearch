@@ -21,6 +21,40 @@ def LimitModal():
         cls="modal-backdrop"
     )
 
+def TimerScript():
+    return Script("""
+    function startUploadTimer() {
+        const statusEl = document.getElementById('sync-status');
+        if (!statusEl) return;
+        
+        let seconds = 0;
+        // Estimated time based on standard PDF vectorization
+        const estimatedTime = 60; 
+        
+        // Show the initial loading text instantly
+        statusEl.style.color = '#3b82f6'; // Blue color for loading
+        statusEl.innerHTML = `⚙️ Processing... 0s (Est: ~${estimatedTime}s)`;
+        
+        // Clear any old timers just in case
+        if (window.uploadTimer) clearInterval(window.uploadTimer);
+        
+        // Start counting up every 1 second (1000 milliseconds)
+        window.uploadTimer = setInterval(() => {
+            seconds++;
+            statusEl.innerHTML = `⚙️ Processing... ${seconds}s (Est: ~${estimatedTime}s)`;
+        }, 1000);
+    }
+
+    // Stop the clock when the server finally responds
+    document.addEventListener('htmx:afterRequest', function(evt) {
+        // Fallback checks for different HTMX versions triggering the event
+        if ((evt.detail.requestConfig && evt.detail.requestConfig.path === '/upload-sync') || 
+            (evt.detail.elt && evt.detail.elt.getAttribute('hx-post') === '/upload-sync')) {
+            clearInterval(window.uploadTimer);
+        }
+    });
+    """)
+
 # ==========================================
 # MAIN WORKSPACE
 # ==========================================
@@ -44,14 +78,21 @@ def WorkspaceLayout(user_id, co2_saved):
                 
                 # Buttons
                 Div(
-                    Button("Sync", cls="btn btn-lime", hx_post="/upload-sync", hx_target="#sync-status", hx_indicator="#sync-spinner", hx_encoding="multipart/form-data"),
+                    Button("Sync", type="submit", cls="btn btn-lime"),
                     Button("Clear", cls="btn btn-ghost", hx_post="/clear-index", hx_target="#sync-status", type="button"), 
                     cls="btn-row"
                 ),
+                
+                # THE PLACEHOLDER: The Javascript needs this empty box to exist before the server finishes!
+                P(id="sync-status", style="margin-top: 10px; font-weight: bold; text-align: center;"), 
+                
+                # HTMX Triggers moved to the Form
+                hx_post="/upload-sync",
+                hx_target="#sync-status",
+                hx_swap="outerHTML",
+                hx_encoding="multipart/form-data",
+                onsubmit="startUploadTimer()"
             ),
-            # Targets for HTMX Responses
-            Div(id="sync-status"),
-            Span("PROCESSING...", id="sync-spinner", cls="htmx-indicator status-pill show", style="display:none;"),
             cls="sb-section"
         ),
 
@@ -85,7 +126,6 @@ def WorkspaceLayout(user_id, co2_saved):
         cls="sidebar"
     )
 
-    # CHANGED FROM Main() to Div() to bypass FastHTML's automatic Pico.css constraints!
     main_content = Div(
      
         # CHAT HISTORY (Starts completely empty!)
@@ -175,17 +215,15 @@ def WorkspaceLayout(user_id, co2_saved):
     )
 
     # ==========================================
-    # CSS STYLES (Enforcing 100vw to break out of Pico.css)
+    # CSS STYLES 
     # ==========================================
     ws_style = Style("""
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root { --lime: #c8ff00; --lime-hover: #d4ff33; --lime-active: #b5ef00; --bg-root: #080808; --bg-sidebar: #0d0d0d; --bg-card: #0a0a0a; --bg-input: #0d0d0d; --bg-msg-ai: #0f0f0f; --bg-msg-user: #141414; --border-subtle: #1a1a1a; --border-mid: #1e1e1e; --border-active: #2e2e2e; --text-primary: #e8e8e8; --text-secondary: #ccc; --text-muted: #666; --text-faint: #333; --text-placeholder: #2e2e2e; --radius-sm: 8px; --radius-md: 10px; --radius-lg: 12px; --radius-xl: 16px; }
         
-        /* Forces the body to ignore all padding and take up the whole screen */
         html, body { height: 100vh; width: 100vw; margin: 0 !important; padding: 0 !important; overflow: hidden; background: #050505; font-family: 'Inter', sans-serif; color: var(--text-primary); -webkit-font-smoothing: antialiased; }
         
-        /* The workspace now forcefully stretches across the full viewport */
         .workspace { display: flex; width: 100vw !important; max-width: none !important; height: 100vh; background: var(--bg-root); overflow: hidden; margin: 0; }
         .ws-wrapper { display: flex; width: 100%; height: 100%; flex: 1; }
         
@@ -193,7 +231,7 @@ def WorkspaceLayout(user_id, co2_saved):
         .sidebar::-webkit-scrollbar { width: 3px; } .sidebar::-webkit-scrollbar-thumb { background: #1a1a1a; border-radius: 2px; }
         .logo { font-size: 1.4rem; font-weight: 600; color: var(--lime); letter-spacing: -0.5px; margin-bottom: 30px; flex-shrink: 0; }
         .sb-section { margin-bottom: 26px; }
-        .sb-label { font-size: 10px; font-weight: 600; letter-spacing: 2.5px; color: #333; text-transform: uppercase; margin-bottom: 12px; }
+        .sb-label { font-size: 10px; font-weight: 600; letter-spacing: 2.5px; color: #ffffff; text-transform: uppercase; margin-bottom: 12px; }
         
         .file-zone { border: 1px dashed #242424; border-radius: var(--radius-md); padding: 16px 12px; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; margin-bottom: 10px; }
         .file-zone:hover { border-color: var(--lime); background: #0e0e0e; }
@@ -209,31 +247,22 @@ def WorkspaceLayout(user_id, co2_saved):
         .btn-lime:hover { background: var(--lime-hover); transform: translateY(-1px); }
         .btn-lime:active { background: var(--lime-active); transform: translateY(0); }
         .btn-ghost { background: #111; color: #777; border: 1px solid var(--border-mid); }
-        .btn-ghost:hover { background: #161616; color: #bbb; border-color: #2a2a2a; }
+        .btn-ghost:hover { background: #ff0000; color: #1a2000; border-color: #2a2a2a; }
         
         #sync-status { margin-top: 10px; min-height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 6px; font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--lime); background: #0d1a00; border: 1px solid #1c2e00; text-align: center; }
         #sync-status:empty { display: none; }
-        .status-pill { margin-top: 10px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 6px; font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--lime); background: #0d1a00; border: 1px solid #1c2e00; opacity: 0; transform: translateY(4px); transition: opacity 0.25s, transform 0.25s; }
-        .status-pill.show { opacity: 1; transform: translateY(0); }
         
         .info-card { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 8px; }
-        .ic-label { font-size: 10px; color: #2e2e2e; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
-        .ic-val { font-size: 13px; font-weight: 500; color: #ccc; word-break: break-all; line-height: 1.4; }
+        .ic-label { font-size: 10px; color: #ff0000; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+        .ic-val { font-size: 13px; font-weight: 500; color: #c8ff00; word-break: break-all; line-height: 1.4; }
         .co2-num { font-size: 1.6rem; font-weight: 600; color: var(--lime); line-height: 1; letter-spacing: -1px; }
-        .co2-sub { font-size: 10px; color: #333; margin-top: 5px; font-weight: 500; letter-spacing: 0.3px; }
+        .co2-sub { font-size: 10px; color: #ff0000; margin-top: 5px; font-weight: 500; letter-spacing: 0.3px; }
         
         .sb-footer { margin-top: auto; padding-top: 16px; }
         .btn-logout { width: 100%; height: 38px; background: transparent; border: 1px solid #1c1c1c; border-radius: var(--radius-sm); font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #333; cursor: pointer; transition: border-color 0.18s, color 0.18s; outline: none; }
-        .btn-logout:hover { border-color: #3a3a3a; color: #777; }
+        .btn-logout:hover { border-color: #c8ff00; color: #ff0000; }
         
-        /* The main section now forcefully takes up all remaining width */
         .main { flex: 1; display: flex; flex-direction: column; min-width: 0; width: 100%; background: var(--bg-root); max-width: none !important; padding: 0 !important; margin: 0 !important; }
-        
-        .topbar { height: 54px; min-height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; border-bottom: 1px solid #111; flex-shrink: 0; }
-        .topbar-title { font-size: 12px; font-weight: 500; color: #2e2e2e; letter-spacing: 0.3px; }
-        .topbar-status { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #2e2e2e; font-weight: 500; }
-        .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 0 rgba(200,255,0,0.4); animation: pulse-dot 2.5s infinite; }
-        @keyframes pulse-dot { 0% { box-shadow: 0 0 0 0 rgba(200,255,0,0.35); } 60% { box-shadow: 0 0 0 5px rgba(200,255,0,0); } 100% { box-shadow: 0 0 0 0 rgba(200,255,0,0); } }
         
         .messages { flex: 1; overflow-y: auto; padding: 28px 32px 20px; display: flex; flex-direction: column; gap: 20px; scroll-behavior: smooth; }
         .messages::-webkit-scrollbar { width: 3px; } .messages::-webkit-scrollbar-thumb { background: #1a1a1a; border-radius: 2px; }
@@ -254,7 +283,6 @@ def WorkspaceLayout(user_id, co2_saved):
         
         .input-area { padding: 14px 24px 20px; border-top: 1px solid #111; flex-shrink: 0; }
         
-        /* ====== APPLIED FIXES HERE ====== */
         .input-shell { display: flex; align-items: center; background: var(--bg-input); border: 1px solid var(--border-mid); border-radius: var(--radius-lg); padding: 7px 7px 7px 18px; gap: 10px; transition: border-color 0.2s; }
         .input-shell:focus-within { border-color: var(--lime) !important; }
         
@@ -266,10 +294,9 @@ def WorkspaceLayout(user_id, co2_saved):
         .send-btn:hover { background: var(--lime-hover); transform: scale(1.06); }
         .send-btn:active { background: var(--lime-active); transform: scale(0.97); }
         .send-icon { width: 15px; height: 15px; display: block; flex-shrink: 0; margin: 0 !important; }
-        /* ================================ */
         
         .input-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding: 0 2px; }
-        .meta-hint, .meta-count { font-size: 10px; color: #222; font-weight: 500; letter-spacing: 0.3px; }
+        .meta-hint, .meta-count { font-size: 10px; color: #939393; font-weight: 500; letter-spacing: 0.3px; }
         
         .modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.82); display: flex; align-items: center; justify-content: center; border-radius: 0; z-index: 100; animation: fadeIn 0.2s ease; }
         @keyframes fadeIn { from{opacity:0} to{opacity:1} }
@@ -285,7 +312,7 @@ def WorkspaceLayout(user_id, co2_saved):
         
         .htmx-indicator { display: none; }
         .htmx-request.typing-wrap { display: flex !important; }
-        .htmx-request.status-pill { display: flex !important; opacity: 1 !important; transform: translateY(0) !important; }
     """)
 
-    return Div(ws_style, Div(Div(sidebar, main_content, cls="ws-wrapper"), cls="workspace"), Div(id="modal-container"))
+    # Added TimerScript() to the return so the browser actually loads it!
+    return Div(TimerScript(), ws_style, Div(Div(sidebar, main_content, cls="ws-wrapper"), cls="workspace"), Div(id="modal-container"))  

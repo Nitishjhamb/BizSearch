@@ -1,5 +1,7 @@
 import os
 import datetime
+import markdown
+import time
 from fasthtml.common import * # type: ignore
 from dotenv import load_dotenv
 
@@ -97,6 +99,9 @@ def post_clear():
 
 @rt("/upload-sync")
 async def post_upload(file_upload: UploadFile, session): 
+    # 1. Start the stopwatch
+    start_time = time.time()
+    
     os.makedirs("uploads", exist_ok=True)
     local_path = f"uploads/{file_upload.filename}"
     
@@ -106,8 +111,15 @@ async def post_upload(file_upload: UploadFile, session):
     try:
         result_msg = search_engine.ingest_and_sync(local_path)
         os.remove(local_path)
+        
+        # 2. Stop the stopwatch and calculate the difference
+        elapsed_time = time.time() - start_time
+        
+        # 3. Format the final success message
+        final_msg = f"{result_msg} ⏱️ (Took {elapsed_time:.1f}s)"
+        
         return (
-            P(result_msg, style="color: #CCFF00; font-weight: bold;", id="sync-status"),
+            P(final_msg, style="color: #CCFF00; font-weight: bold;", id="sync-status"),
             Div(id="chat-history", cls="messages", hx_swap_oob="true")
         )
     except Exception as e:
@@ -125,14 +137,19 @@ def post_search(search_query: str, session):
     if not can_make_request(str(user_id)):
         return Div(LimitModal(), id="modal-container", hx_swap_oob="true")
         
-    answer = search_engine.ask(search_query)
+    # 1. Get the raw markdown answer from the AI
+    raw_answer = search_engine.ask(search_query)
+    
+    # 2. Translate the Markdown into beautiful HTML
+    html_answer = markdown.markdown(raw_answer)
     
     safe_user_id = get_safe_user_id(str(user_id))
     user_stats = db.reference(f'users/{safe_user_id}').get() or {"lifetime": 0} # type: ignore
     new_co2 = user_stats.get("lifetime", 0) * 0.42 # type: ignore
     
     return (
-        Div(answer, cls="ai-msg"),
+        # 3. Wrap it in NotStr() so FastHTML knows it's safe to render as actual HTML
+        Div(NotStr(html_answer), cls="ai-msg"),
         Script("document.getElementById('chat-history').scrollTop = document.getElementById('chat-history').scrollHeight;"),
         Span(f"{new_co2:.2f}", id="carbon-amount", hx_swap_oob="true")
     )

@@ -17,7 +17,7 @@ class BizSearchEngine:
         self.embed_model = OllamaEmbedding(model_name="mxbai-embed-large")
         
         # ==========================================
-        # 2. APPLY GLOBAL SETTINGS (THE FIX IS HERE)
+        # 2. APPLY GLOBAL SETTINGS 
         # ==========================================
         Settings.llm = self.llm
         Settings.embed_model = self.embed_model
@@ -64,14 +64,27 @@ class BizSearchEngine:
         except Exception as e:
             raise Exception(f"Failed to ingest: {str(e)}")
 
-    def ask(self, query: str):
-        """Queries the cloud vector DB and generates an answer."""
+    def ask(self, search_query):
+        # Safety check: ensure a document has been uploaded or an index exists
         if not self.index:
-            return "⚠️ No data found in the cloud index. Please sync a report first."
-            
-        # You can adjust similarity_top_k to pull more or less context
-        query_engine = self.index.as_query_engine(similarity_top_k=5)
-        response = query_engine.query(query)
+            return "⚠️ Please upload and sync a document before asking questions."
+
+        # 1. Wrap the user's query in a strict formatting wrapper
+        structured_prompt = f"""
+        You are an expert business analyst. Answer the user's question based ONLY on the provided document context.
+
+        CRITICAL FORMATTING RULES:
+        1. Structure your answer professionally.
+        2. Always use short, readable paragraphs.
+        3. Use bullet points or numbered lists when explaining multiple items, steps, or features.
+        4. Use **bold text** to highlight key metrics, important names, or core concepts.
+        5. NEVER return a single, massive wall of text.
+
+        User Question: {search_query}
+        """
+        
+        # 2. Convert the index into a query engine and send the prompt!
+        response = self.index.as_query_engine().query(structured_prompt)
         return str(response)
 
     def clear_data(self):
